@@ -333,71 +333,91 @@ def test_split_endpoints(client):
             return
         
         if result and len(result) > 0:
-            # Get workspace ID
-            workspace_id = get_resource_identifier(result[0])
-            logger.info(f"Using workspace ID: {workspace_id}")
-            
-            # List environments in a workspace
-            result, error = safe_api_call(client.environments.list, workspace_id)
-            success = print_result(f"List Environments (Workspace ID: {workspace_id})", result, error)
-            
-            if not success:
-                print("Unable to list environments. Skipping dependent tests.")
-                logger.warning("Unable to list environments. Skipping dependent tests.")
-                return
-            
-            if result and len(result) > 0:
-                # Get environment ID
-                environment_id = get_resource_identifier(result[0])
-                logger.info(f"Using environment ID: {environment_id}")
+            # Test across all workspaces (limited to 3 for brevity)
+            for workspace_index, workspace in enumerate(result[:3]):
+                # Get workspace ID
+                workspace_id = get_resource_identifier(workspace)
+                workspace_name = workspace.name if hasattr(workspace, 'name') else f"Workspace {workspace_index}"
+                logger.info(f"Testing workspace: {workspace_name} (ID: {workspace_id})")
                 
-                # List splits in an environment
-                try:
-                    # Use split_definitions client instead of splits client
-                    result, error = safe_api_call(client.split_definitions.list, environment_id, workspace_id)
-                    print_result(f"List Split Definitions (Environment ID: {environment_id}, Workspace ID: {workspace_id})", result, error)
+                # List environments in a workspace
+                environments, error = safe_api_call(client.environments.list, workspace_id)
+                env_success = print_result(f"List Environments (Workspace: {workspace_name})", environments, error)
+                
+                if not env_success or not environments:
+                    logger.warning(f"No environments found for workspace {workspace_name}. Skipping.")
+                    continue
+                
+                # Test across all environments (limited to 2 for brevity)
+                for env_index, environment in enumerate(environments[:2]):
+                    # Get environment ID
+                    environment_id = get_resource_identifier(environment)
+                    environment_name = environment.name if hasattr(environment, 'name') else f"Environment {env_index}"
+                    logger.info(f"Testing environment: {environment_name} (ID: {environment_id})")
                     
-                    # Also try the regular splits client with just workspace_id
-                    result, error = safe_api_call(client.splits.list, workspace_id)
-                    print_result(f"List Splits (Workspace ID: {workspace_id})", result, error)
-                except Exception as e:
-                    logger.error(f"Error listing splits: {str(e)}")
-                    print(f"ERROR listing splits: {str(e)}")
+                    # List split definitions in this environment
+                    try:
+                        split_defs, error = safe_api_call(client.split_definitions.list, 
+                                                         environment_id, workspace_id)
+                        
+                        if split_defs and len(split_defs) > 0:
+                            # Only show one split definition per environment
+                            title = f"Split Definition (Workspace: {workspace_name}, Environment: {environment_name})"
+                            print_separator(title)
+                            try:
+                                if hasattr(split_defs[0], '__dict__'):
+                                    pprint(vars(split_defs[0]))
+                                else:
+                                    pprint(split_defs[0])
+                                logger.info(f"Successfully displayed split definition from {environment_name}")
+                            except (IndexError, TypeError):
+                                print("Could not display split definition")
+                                logger.error("Could not display split definition")
+                        else:
+                            logger.info(f"No split definitions found in environment {environment_name}")
+                            print(f"No split definitions found in environment {environment_name}")
+                    except Exception as e:
+                        logger.error(f"Error listing split definitions: {str(e)}")
+                        print(f"ERROR listing split definitions: {str(e)}")
+            
+            # Now get one list of splits from the first workspace
+            workspace_id = get_resource_identifier(result[0])
+            workspace_name = result[0].name if hasattr(result[0], 'name') else "First Workspace"
+            
+            # List segments in a workspace
+            result, error = safe_api_call(client.segments.list, workspace_id)
+            print_result(f"List Segments (Workspace ID: {workspace_id})", result, error)
                 
-                # List segments in a workspace
-                result, error = safe_api_call(client.segments.list, workspace_id)
-                print_result(f"List Segments (Workspace ID: {workspace_id})", result, error)
-                
-                # List traffic types - needs workspace_id
-                try:
-                    result, error = safe_api_call(client.traffic_types.list, workspace_id)
-                    print_result(f"List Traffic Types (Workspace ID: {workspace_id})", result, error)
-                except Exception as e:
-                    logger.error(f"Error listing traffic types: {str(e)}")
-                    print(f"ERROR listing traffic types: {str(e)}")
-                
-                # Check if apikeys client has the right methods
-                try:
-                    if hasattr(client.apikeys, 'list'):
-                        result, error = safe_api_call(client.apikeys.list)
-                        print_result("List API Keys", result, error)
-                    elif hasattr(client.apikeys, 'get_all'):
-                        result, error = safe_api_call(client.apikeys.get_all)
-                        print_result("List API Keys (using get_all)", result, error)
-                    else:
-                        logger.warning("APIKeyMicroClient does not have list or get_all methods")
-                        print("WARNING: APIKeyMicroClient does not have list or get_all methods")
-                except Exception as e:
-                    logger.error(f"Error listing API keys: {str(e)}")
-                    print(f"ERROR listing API keys: {str(e)}")
-                
-                # List flag sets
-                try:
-                    result, error = safe_api_call(client.flag_sets.list, workspace_id)
-                    print_result(f"List Flag Sets (Workspace ID: {workspace_id})", result, error)
-                except Exception as e:
-                    logger.error(f"Error listing flag sets: {str(e)}")
-                    print(f"ERROR listing flag sets: {str(e)}")
+            # List traffic types - needs workspace_id
+            try:
+                result, error = safe_api_call(client.traffic_types.list, workspace_id)
+                print_result(f"List Traffic Types (Workspace ID: {workspace_id})", result, error)
+            except Exception as e:
+                logger.error(f"Error listing traffic types: {str(e)}")
+                print(f"ERROR listing traffic types: {str(e)}")
+            
+            # Check if apikeys client has the right methods
+            try:
+                if hasattr(client.apikeys, 'list'):
+                    result, error = safe_api_call(client.apikeys.list)
+                    print_result("List API Keys", result, error)
+                elif hasattr(client.apikeys, 'get_all'):
+                    result, error = safe_api_call(client.apikeys.get_all)
+                    print_result("List API Keys (using get_all)", result, error)
+                else:
+                    logger.warning("APIKeyMicroClient does not have list or get_all methods")
+                    print("WARNING: APIKeyMicroClient does not have list or get_all methods")
+            except Exception as e:
+                logger.error(f"Error listing API keys: {str(e)}")
+                print(f"ERROR listing API keys: {str(e)}")
+            
+            # List flag sets
+            try:
+                result, error = safe_api_call(client.flag_sets.list, workspace_id)
+                print_result(f"List Flag Sets (Workspace ID: {workspace_id})", result, error)
+            except Exception as e:
+                logger.error(f"Error listing flag sets: {str(e)}")
+                print(f"ERROR listing flag sets: {str(e)}")
     except Exception as e:
         logger.error(f"Error in Split endpoint tests: {str(e)}", exc_info=True)
         print(f"ERROR: {str(e)}")
@@ -443,12 +463,13 @@ def main():
     print("1. Harness mode only")
     print("2. Split mode only")
     print("3. Both Harness and Split modes")
+    print("4. Harness mode with both Harness token and Split API key")
     
     while True:
-        mode = input("Enter your choice (1-3): ").strip()
-        if mode in ['1', '2', '3']:
+        mode = input("Enter your choice (1-4): ").strip()
+        if mode in ['1', '2', '3', '4']:
             break
-        print("Invalid choice. Please enter 1, 2, or 3.")
+        print("Invalid choice. Please enter 1, 2, 3, or 4.")
     
     logger.info(f"Selected mode: {mode}")
     
@@ -460,7 +481,7 @@ def main():
     split_base_url = None
     
     # Get required inputs based on selected mode
-    if mode in ['1', '3']:
+    if mode in ['1', '3', '4']:
         print("\n--- Harness Mode Configuration ---")
         print("For Harness mode, you need your account identifier and a valid Harness API key.")
         print("The account identifier is typically found in your Harness URL or account settings.")
@@ -484,7 +505,7 @@ def main():
             print("Error: Account identifier and Harness API key are required for Harness mode.")
             sys.exit(1)
     
-    if mode in ['1', '2', '3']:
+    if mode in ['2', '3', '4']:
         # For both modes, we might need to set the Split base URL
         print("\n--- Split API Configuration ---")
         print("The default Split base URLs are:")
@@ -496,17 +517,21 @@ def main():
             split_base_url = custom_split_url
             logger.info(f"Custom Split base URL provided: {split_base_url}")
     
-    if mode in ['2', '3']:
+    if mode in ['2', '3', '4']:
         print("\n--- Split API Key Configuration ---")
         print("For Split mode, you need a valid Split API key with sufficient permissions.")
         print("You can find your API keys in the Split dashboard under 'API Keys' section.")
+        print("If you don't provide a Split API key and are also testing Harness mode,")
+        print("the Harness API token will be used for Split endpoints.")
         
-        split_api_key = input("Enter your Split API key: ").strip()
-        logger.info("Split API key provided (not logging the actual key)")
-        
-        if not split_api_key:
-            logger.error("Split API key is required for Split mode")
-            print("Error: Split API key is required for Split mode.")
+        split_api_key = input("Enter your Split API key (or press Enter to use Harness token if available): ").strip()
+        if split_api_key:
+            logger.info("Split API key provided (not logging the actual key)")
+        elif mode == '3' and harness_api_key:
+            logger.info("No Split API key provided, will use Harness token for Split endpoints")
+        else:
+            logger.error("Split API key is required for Split mode when not testing Harness mode")
+            print("Error: Split API key is required for Split mode when not testing Harness mode.")
             sys.exit(1)
     
     # Select which endpoints to test
@@ -533,13 +558,19 @@ def main():
     # Display available endpoints based on selected mode
     available_endpoints = {}
     
-    if mode in ['1', '3']:
+    if mode in ['1', '3', '4']:
         print("\nHarness Endpoints:")
         for key, (name, _) in harness_endpoints.items():
             print(f"{key}. {name}")
             available_endpoints[key] = harness_endpoints[key]
+        
+        # Also include Split endpoints when in Harness mode
+        print("\nSplit Endpoints (accessible in Harness mode):")
+        for key, (name, _) in split_endpoints.items():
+            print(f"{key}. {name}")
+            available_endpoints[key] = split_endpoints[key]
     
-    if mode in ['2', '3']:
+    if mode in ['2']:
         print("\nSplit Endpoints:")
         for key, (name, _) in split_endpoints.items():
             print(f"{key}. {name}")
@@ -570,7 +601,7 @@ def main():
             selected_endpoints = list(available_endpoints.values())
     
     # Run tests based on selected mode
-    if mode in ['1', '3']:
+    if mode in ['1', '3', '4']:
         print("\nInitializing Split API client in Harness mode...")
         
         try:
@@ -580,6 +611,11 @@ def main():
                 'harness_token': harness_api_key,
                 'account_identifier': account_id
             }
+            
+            # Add Split API key for mode 4
+            if mode == '4' and split_api_key:
+                config['apikey'] = split_api_key
+                logger.info("Using both Harness token and Split API key")
             
             # Add custom Harness base URL if provided
             if harness_base_url:
@@ -602,12 +638,14 @@ def main():
             for name, test_func in selected_endpoints:
                 if test_func in [func for _, func in harness_endpoints.values()]:
                     test_func(harness_client, account_id)
+                elif test_func in [func for _, func in split_endpoints.values()]:
+                    test_func(harness_client)
         except Exception as e:
             logger.error(f"Error initializing Harness mode client: {str(e)}", exc_info=True)
             print(f"Error initializing Harness mode client: {str(e)}")
             print("Please check your account identifier and API key and try again.")
     
-    if mode in ['2', '3']:
+    if mode in ['2']:
         print("\nInitializing Split API client in standard mode...")
         
         try:
@@ -650,11 +688,11 @@ def main():
     print("   - Always use the Split base URLs (e.g., https://api.split.io/internal/api/v2)")
     print("   - In standard mode: authenticated with Split API key")
     print("   - In Harness mode: authenticated with Split API key or Harness token")
+    print("   - If Split API key is not provided in combined mode, Harness token will be used")
     
-    if mode in ['1', '3']:
+    if mode in ['1', '3', '4']:
         print("\n2. Harness-specific endpoints:")
         print("   - Use the Harness base URL (default: https://app.harness.io/)")
-        print("   - The gateway path for Feature Flags API is '/gateway/ff/api/v2'")
         print("   - Authenticated with 'x-api-key' header instead of standard Split authentication")
         print("   - If harness_token is not provided, apikey will be used for all operations")
     
